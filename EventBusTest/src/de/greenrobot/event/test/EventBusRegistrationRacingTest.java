@@ -15,6 +15,8 @@
  */
 package de.greenrobot.event.test;
 
+import de.greenrobot.event.Subscribe;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -70,7 +72,7 @@ public class EventBusRegistrationRacingTest extends AbstractEventBusTest {
         return threads;
     }
 
-    class SubscriberThread implements Runnable {
+    public class SubscriberThread implements Runnable {
         volatile int eventCount;
 
         @Override
@@ -87,6 +89,7 @@ public class EventBusRegistrationRacingTest extends AbstractEventBusTest {
             unregisteredLatch.countDown();
         }
 
+        @Subscribe
         public void onEvent(String event) {
             eventCount++;
         }

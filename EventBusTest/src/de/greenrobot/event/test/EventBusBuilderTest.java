@@ -20,6 +20,7 @@ import de.greenrobot.event.EventBusBuilder;
 import de.greenrobot.event.EventBusException;
 import de.greenrobot.event.NoSubscriberEvent;
 import de.greenrobot.event.SubscriberExceptionEvent;
+import de.greenrobot.event.Subscribe;
 
 /**
  * @author Markus Junginger, greenrobot
@@ -74,19 +75,22 @@ public class EventBusBuilderTest extends AbstractEventBusTest {
         eventBus.post("Foo");
     }
 
-    class SubscriberExceptionEventTracker {
+    public class SubscriberExceptionEventTracker {
+        @Subscribe
         public void onEvent(SubscriberExceptionEvent event) {
             trackEvent(event);
         }
     }
 
-    class NoSubscriberEventTracker {
+    public class NoSubscriberEventTracker {
+        @Subscribe
         public void onEvent(NoSubscriberEvent event) {
             trackEvent(event);
         }
     }
 
-    class ThrowingSubscriber {
+    public class ThrowingSubscriber {
+        @Subscribe
         public void onEvent(Object event) {
             throw new RuntimeException();
         }

@@ -19,6 +19,8 @@ import java.util.concurrent.CountDownLatch;
 
 import android.test.UiThreadTest;
 import de.greenrobot.event.EventBusException;
+import de.greenrobot.event.ThreadMode;
+import de.greenrobot.event.Subscribe;
 
 /**
  * @author Markus Junginger, greenrobot
@@ -75,13 +77,14 @@ public class EventBusCancelEventDeliveryTest extends AbstractEventBusTest {
         assertNotNull(failed);
     }
 
-    class Subscriber {
+    public class Subscriber {
         private final boolean cancel;
 
         public Subscriber(boolean cancel) {
             this.cancel = cancel;
         }
 
+        @Subscribe
         public void onEvent(String event) {
             trackEvent(event);
             if (cancel) {
@@ -90,7 +93,8 @@ public class EventBusCancelEventDeliveryTest extends AbstractEventBusTest {
         }
     }
 
-    class SubscriberCancelOtherEvent {
+    public class SubscriberCancelOtherEvent {
+        @Subscribe
         public void onEvent(String event) {
             try {
                 eventBus.cancelEventDelivery(this);
@@ -100,9 +104,10 @@ public class EventBusCancelEventDeliveryTest extends AbstractEventBusTest {
         }
     }
 
-    class SubscriberMainThread {
+    public class SubscriberMainThread {
         final CountDownLatch done = new CountDownLatch(1);
 
+        @Subscribe(threadMode = ThreadMode.MainThread)
         public void onEventMainThread(String event) {
             try {
                 eventBus.cancelEventDelivery(event);

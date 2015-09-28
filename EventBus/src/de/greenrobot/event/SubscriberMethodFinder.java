@@ -20,15 +20,13 @@ import android.util.Log;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 class SubscriberMethodFinder {
-    private static final String ON_EVENT_METHOD_NAME = "onEvent";
-
     /*
      * In newer class files, compilers may add methods. Those are called bridge or synthetic methods.
      * EventBus must ignore both. There modifiers are not public but defined in the Java class file format:
@@ -38,29 +36,80 @@ class SubscriberMethodFinder {
     private static final int SYNTHETIC = 0x1000;
 
     private static final int MODIFIERS_IGNORE = Modifier.ABSTRACT | Modifier.STATIC | BRIDGE | SYNTHETIC;
-    private static final Map<String, List<SubscriberMethod>> methodCache = new HashMap<String, List<SubscriberMethod>>();
+    private static final Map<String, List<SubscriberMethod>> METHOD_CACHE = new HashMap<String, List<SubscriberMethod>>();
 
-    private final Map<Class<?>, Class<?>> skipMethodVerificationForClasses;
+    /** Optional generated index without entries from subscribers super classes */
+    private static final SubscriberIndex INDEX;
 
-    SubscriberMethodFinder(List<Class<?>> skipMethodVerificationForClassesList) {
-        skipMethodVerificationForClasses = new ConcurrentHashMap<Class<?>, Class<?>>();
-        if (skipMethodVerificationForClassesList != null) {
-            for (Class<?> clazz : skipMethodVerificationForClassesList) {
-                skipMethodVerificationForClasses.put(clazz, clazz);
-            }
+    static {
+        SubscriberIndex newIndex = null;
+        try {
+            Class<?> clazz = Class.forName("de.greenrobot.event.MyGeneratedSubscriberIndex");
+            newIndex = (SubscriberIndex) clazz.newInstance();
+        } catch (ClassNotFoundException e) {
+            Log.d(EventBus.TAG, "No subscriber index available, reverting to dynamic look-up");
+            // Fine
+        } catch (Exception e) {
+            Log.w(EventBus.TAG, "Could not init subscriber index, reverting to dynamic look-up", e);
         }
+        INDEX = newIndex;
+    }
+
+    private final boolean strictMethodVerification;
+
+    SubscriberMethodFinder(boolean strictMethodVerification) {
+        this.strictMethodVerification = strictMethodVerification;
     }
 
     List<SubscriberMethod> findSubscriberMethods(Class<?> subscriberClass) {
         String key = subscriberClass.getName();
         List<SubscriberMethod> subscriberMethods;
-        synchronized (methodCache) {
-            subscriberMethods = methodCache.get(key);
+        synchronized (METHOD_CACHE) {
+            subscriberMethods = METHOD_CACHE.get(key);
         }
         if (subscriberMethods != null) {
             return subscriberMethods;
         }
-        subscriberMethods = new ArrayList<SubscriberMethod>();
+        if (INDEX != null) {
+            subscriberMethods = findSubscriberMethodsWithIndex(subscriberClass);
+        } else {
+            subscriberMethods = findSubscriberMethodsWithReflection(subscriberClass);
+        }
+        if (subscriberMethods.isEmpty()) {
+            throw new EventBusException("Subscriber " + subscriberClass
+                    + " and its super classes have no public methods with the @Subscribe annotation");
+        } else {
+            synchronized (METHOD_CACHE) {
+                METHOD_CACHE.put(key, subscriberMethods);
+            }
+            return subscriberMethods;
+        }
+    }
+
+    private List<SubscriberMethod> findSubscriberMethodsWithIndex(Class<?> subscriberClass) {
+        Class<?> clazz = subscriberClass;
+        while (clazz != null) {
+            SubscriberMethod[] array = INDEX.getSubscribersFor(clazz);
+            if (array != null && array.length > 0) {
+                List<SubscriberMethod> subscriberMethods = new ArrayList<SubscriberMethod>();
+                for (SubscriberMethod subscriberMethod : array) {
+                    subscriberMethods.add(subscriberMethod);
+                }
+                return subscriberMethods;
+            } else {
+                String name = clazz.getName();
+                if (name.startsWith("java.") || name.startsWith("javax.") || name.startsWith("android.")) {
+                    // Skip system classes, this just degrades performance
+                    break;
+                }
+                clazz = clazz.getSuperclass();
+            }
+        }
+        return Collections.EMPTY_LIST;
+    }
+
+    private List<SubscriberMethod> findSubscriberMethodsWithReflection(Class<?> subscriberClass) {
+        List<SubscriberMethod> subscriberMethods = new ArrayList<SubscriberMethod>();
         Class<?> clazz = subscriberClass;
         HashSet<String> eventTypesFound = new HashSet<String>();
         StringBuilder methodKeyBuilder = new StringBuilder();
@@ -74,61 +123,50 @@ class SubscriberMethodFinder {
             // Starting with EventBus 2.2 we enforced methods to be public (might change with annotations again)
             Method[] methods = clazz.getDeclaredMethods();
             for (Method method : methods) {
-                String methodName = method.getName();
-                if (methodName.startsWith(ON_EVENT_METHOD_NAME)) {
-                    int modifiers = method.getModifiers();
-                    if ((modifiers & Modifier.PUBLIC) != 0 && (modifiers & MODIFIERS_IGNORE) == 0) {
-                        Class<?>[] parameterTypes = method.getParameterTypes();
-                        if (parameterTypes.length == 1) {
-                            String modifierString = methodName.substring(ON_EVENT_METHOD_NAME.length());
-                            ThreadMode threadMode;
-                            if (modifierString.length() == 0) {
-                                threadMode = ThreadMode.PostThread;
-                            } else if (modifierString.equals("MainThread")) {
-                                threadMode = ThreadMode.MainThread;
-                            } else if (modifierString.equals("BackgroundThread")) {
-                                threadMode = ThreadMode.BackgroundThread;
-                            } else if (modifierString.equals("Async")) {
-                                threadMode = ThreadMode.Async;
-                            } else {
-                                if (skipMethodVerificationForClasses.containsKey(clazz)) {
-                                    continue;
-                                } else {
-                                    throw new EventBusException("Illegal onEvent method, check for typos: " + method);
-                                }
-                            }
+                int modifiers = method.getModifiers();
+                if ((modifiers & Modifier.PUBLIC) != 0 && (modifiers & MODIFIERS_IGNORE) == 0) {
+                    Class<?>[] parameterTypes = method.getParameterTypes();
+                    if (parameterTypes.length == 1) {
+                        Subscribe subscribeAnnotation = method.getAnnotation(Subscribe.class);
+                        if (subscribeAnnotation != null) {
+                            String methodName = method.getName();
                             Class<?> eventType = parameterTypes[0];
                             methodKeyBuilder.setLength(0);
                             methodKeyBuilder.append(methodName);
                             methodKeyBuilder.append('>').append(eventType.getName());
+
                             String methodKey = methodKeyBuilder.toString();
                             if (eventTypesFound.add(methodKey)) {
                                 // Only add if not already found in a sub class
+                                ThreadMode threadMode = subscribeAnnotation.threadMode();
                                 subscriberMethods.add(new SubscriberMethod(method, threadMode, eventType));
                             }
                         }
-                    } else if (!skipMethodVerificationForClasses.containsKey(clazz)) {
-                        Log.d(EventBus.TAG, "Skipping method (not public, static or abstract): " + clazz + "."
-                                + methodName);
+                    } else if (strictMethodVerification) {
+                        if (method.isAnnotationPresent(Subscribe.class)) {
+                            String methodName = name + "." + method.getName();
+                            throw new EventBusException("@Subscribe method " + methodName +
+                                    "must have exactly 1 parameter but has " + parameterTypes.length);
+                        }
                     }
+                } else if (strictMethodVerification) {
+                    if (method.isAnnotationPresent(Subscribe.class)) {
+                        String methodName = name + "." + method.getName();
+                        throw new EventBusException(methodName +
+                                " is a illegal @Subscribe method: must be public, non-static, and non-abstract");
+                    }
+
                 }
             }
+
             clazz = clazz.getSuperclass();
         }
-        if (subscriberMethods.isEmpty()) {
-            throw new EventBusException("Subscriber " + subscriberClass + " has no public methods called "
-                    + ON_EVENT_METHOD_NAME);
-        } else {
-            synchronized (methodCache) {
-                methodCache.put(key, subscriberMethods);
-            }
-            return subscriberMethods;
-        }
+        return subscriberMethods;
     }
 
     static void clearCaches() {
-        synchronized (methodCache) {
-            methodCache.clear();
+        synchronized (METHOD_CACHE) {
+            METHOD_CACHE.clear();
         }
     }
 

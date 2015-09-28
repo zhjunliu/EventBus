@@ -18,6 +18,7 @@ package de.greenrobot.event.test;
 import de.greenrobot.event.EventBus;
 import de.greenrobot.event.NoSubscriberEvent;
 import de.greenrobot.event.SubscriberExceptionEvent;
+import de.greenrobot.event.Subscribe;
 
 /**
  * @author Markus Junginger, greenrobot
@@ -35,11 +36,7 @@ public class EventBusNoSubscriberEventTest extends AbstractEventBusTest {
     }
 
     public void testNoSubscriberEventAfterUnregister() {
-        Object subscriber = new Object() {
-            @SuppressWarnings("unused")
-            public void onEvent(String dummy) {
-            }
-        };
+        Object subscriber = new DummySubscriber();
         eventBus.register(subscriber);
         eventBus.unregister(subscriber);
         testNoSubscriberEvent();
@@ -57,15 +54,25 @@ public class EventBusNoSubscriberEventTest extends AbstractEventBusTest {
         assertEquals("Foo", noSub.originalEvent);
     }
 
+    @Subscribe
     public void onEvent(NoSubscriberEvent event) {
         trackEvent(event);
     }
 
+    @Subscribe
     public void onEvent(SubscriberExceptionEvent event) {
         trackEvent(event);
     }
 
-    class BadNoSubscriberSubscriber {
+    public static class DummySubscriber {
+        @SuppressWarnings("unused")
+        @Subscribe
+        public void onEvent(String dummy) {
+        }
+    }
+
+    public class BadNoSubscriberSubscriber {
+        @Subscribe
         public void onEvent(NoSubscriberEvent event) {
             throw new RuntimeException("I'm bad");
         }

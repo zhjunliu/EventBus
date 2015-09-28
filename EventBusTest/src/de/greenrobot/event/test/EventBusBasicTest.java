@@ -18,6 +18,7 @@ package de.greenrobot.event.test;
 import android.app.Activity;
 import android.util.Log;
 import de.greenrobot.event.EventBus;
+import de.greenrobot.event.Subscribe;
 import junit.framework.TestCase;
 
 import java.lang.ref.WeakReference;
@@ -34,6 +35,7 @@ public class EventBusBasicTest extends TestCase {
     private int lastIntEvent;
     private int countMyEventExtended;
     private int countMyEvent;
+    private int countMyEvent2;
 
     protected void setUp() throws Exception {
         super.setUp();
@@ -129,6 +131,14 @@ public class EventBusBasicTest extends TestCase {
         assertEquals(count, countMyEvent);
     }
 
+    public void testMultipleSubscribeMethodsForEvent() {
+        eventBus.register(this);
+        MyEvent event = new MyEvent();
+        eventBus.post(event);
+        assertEquals(1, countMyEvent);
+        assertEquals(1, countMyEvent2);
+    }
+
     public void testPostAfterUnregister() {
         eventBus.register(this);
         eventBus.unregister(this);
@@ -186,10 +196,7 @@ public class EventBusBasicTest extends TestCase {
     public void testHasSubscriberForEventSuperclass() {
         assertFalse(eventBus.hasSubscriberForEvent(String.class));
 
-        Object subscriber = new Object() {
-            public void onEvent(Object event) {
-            }
-        };
+        Object subscriber = new ObjectSubscriber();
         eventBus.register(subscriber);
         assertTrue(eventBus.hasSubscriberForEvent(String.class));
 
@@ -200,10 +207,7 @@ public class EventBusBasicTest extends TestCase {
     public void testHasSubscriberForEventImplementedInterface() {
         assertFalse(eventBus.hasSubscriberForEvent(String.class));
 
-        Object subscriber = new Object() {
-            public void onEvent(CharSequence event) {
-            }
-        };
+        Object subscriber = new CharSequenceSubscriber();
         eventBus.register(subscriber);
         assertTrue(eventBus.hasSubscriberForEvent(CharSequence.class));
         assertTrue(eventBus.hasSubscriberForEvent(String.class));
@@ -213,42 +217,65 @@ public class EventBusBasicTest extends TestCase {
         assertFalse(eventBus.hasSubscriberForEvent(String.class));
     }
 
+    @Subscribe
     public void onEvent(String event) {
         lastStringEvent = event;
         countStringEvent++;
     }
 
+    @Subscribe
     public void onEvent(Integer event) {
         lastIntEvent = event;
         countIntEvent++;
     }
 
+    @Subscribe
     public void onEvent(MyEvent event) {
         countMyEvent++;
     }
 
+    @Subscribe
+    public void onEvent2(MyEvent event) {
+        countMyEvent2++;
+    }
+
+    @Subscribe
     public void onEvent(MyEventExtended event) {
         countMyEventExtended++;
     }
 
-    static class TestActivity extends Activity {
+    public static class TestActivity extends Activity {
         public String lastStringEvent;
 
+        @Subscribe
         public void onEvent(String event) {
             lastStringEvent = event;
         }
     }
 
-    class MyEvent {
+    public static class CharSequenceSubscriber {
+        @Subscribe
+        public void onEvent(CharSequence event) {
+        }
     }
 
-    class MyEventExtended extends MyEvent {
+    public static class ObjectSubscriber {
+        @Subscribe
+        public void onEvent(Object event) {
+        }
     }
 
-    class RepostInteger {
+    public class MyEvent {
+    }
+
+    public class MyEventExtended extends MyEvent {
+    }
+
+    public class RepostInteger {
         public int lastEvent;
         public int countEvent;
 
+        @Subscribe
         public void onEvent(Integer event) {
             lastEvent = event;
             countEvent++;
